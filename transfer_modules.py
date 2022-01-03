@@ -128,6 +128,117 @@ class Transformersub(nn.Module):
         output = output.view(batch_size*seq_len, node_num, em_len)
         return output
 
+class Transformersubsat(nn.Module):
+    def __init__(self, embedding, output_dim, heads, nlayers, nodes):
+        super(Transformersubsat, self).__init__()
+        self.encoder = Encoder(embedding, output_dim, heads, nlayers, nodes)
+        self.decoder = DecoderLayer(embedding, heads)
+        self.linear = nn.Linear(output_dim, output_dim)
+        self.linear1 = nn.Linear(output_dim, output_dim)
+        self.nlayers = nlayers
+
+    def forward(self, enc_inputs, dec_inputs):
+        batch_size = enc_inputs.shape[0]
+        seq_len = enc_inputs.shape[1]
+        node_num = enc_inputs.shape[2]
+        em_len = enc_inputs.shape[3]
+        output = torch.zeros_like(enc_inputs)
+        en_input = enc_inputs[:, :2].clone()
+        de_input = dec_inputs[:, 1:].clone() 
+        cat_inputs = torch.cat((en_input, de_input), 1)
+        for k in range(1, seq_len+1):
+            if k == 1:
+                last_inputs = self.encoder(cat_inputs[:, 0])
+            enc_input = last_inputs
+            dec_input = self.encoder(cat_inputs[:, k])
+            for i in range(self.nlayers):
+                enc_input = self.decoder(enc_input, dec_input)
+            bn = enc_input.size(0)
+            seq = enc_input.size(1)
+            dec_output = enc_input.view(bn*seq, -1)
+            dec_output = self.linear(dec_output).view(bn, seq, -1)
+            out_put = dec_output-last_inputs
+            last_inputs = dec_output
+            out_put = out_put.view(bn*seq, -1)
+            out_put = self.linear1(out_put).view(bn, seq, -1)
+            output[:, k-1] = out_put
+        output = output.view(batch_size*seq_len, node_num, em_len)
+        return output
+
+class Transformersubsatall(nn.Module):
+    def __init__(self, embedding, output_dim, heads, nlayers, nodes):
+        super(Transformersubsatall, self).__init__()
+        self.encoder = Encoder(embedding, output_dim, heads, nlayers, nodes)
+        self.decoder = DecoderLayer(embedding, heads)
+        self.linear = nn.Linear(output_dim, output_dim)
+        self.linear1 = nn.Linear(output_dim, output_dim)
+        self.nlayers = nlayers
+
+    def forward(self, enc_inputs, dec_inputs):
+        batch_size = enc_inputs.shape[0]
+        seq_len = enc_inputs.shape[1]
+        node_num = enc_inputs.shape[2]
+        em_len = enc_inputs.shape[3]
+        output = torch.zeros_like(enc_inputs)
+        en_input = enc_inputs[:, :2].clone()
+        de_input = dec_inputs[:, 1:].clone() 
+        cat_inputs = torch.cat((en_input, de_input), 1)
+        for k in range(1, seq_len+1):
+            #if k == 1:
+            last_inputs = self.encoder(cat_inputs[:, 0])
+            enc_input = last_inputs
+            dec_input = self.encoder(cat_inputs[:, k])
+            for i in range(self.nlayers):
+                enc_input = self.decoder(enc_input, dec_input)
+            bn = enc_input.size(0)
+            seq = enc_input.size(1)
+            dec_output = enc_input.view(bn*seq, -1)
+            dec_output = self.linear(dec_output).view(bn, seq, -1)
+            out_put = dec_output-last_inputs
+            last_inputs = dec_output
+            out_put = out_put.view(bn*seq, -1)
+            out_put = self.linear1(out_put).view(bn, seq, -1)
+            output[:, k-1] = out_put
+        output = output.view(batch_size*seq_len, node_num, em_len)
+        return output
+
+class Transformersubunsat(nn.Module):
+    def __init__(self, embedding, output_dim, heads, nlayers, nodes):
+        super(Transformersubunsat, self).__init__()
+        self.encoder = Encoder(embedding, output_dim, heads, nlayers, nodes)
+        self.decoder = DecoderLayer(embedding, heads)
+        self.linear = nn.Linear(output_dim, output_dim)
+        self.linear1 = nn.Linear(output_dim, output_dim)
+        self.nlayers = nlayers
+
+    def forward(self, enc_inputs, dec_inputs):
+        batch_size = enc_inputs.shape[0]
+        seq_len = enc_inputs.shape[1]
+        node_num = enc_inputs.shape[2]
+        em_len = enc_inputs.shape[3]
+        output = torch.zeros_like(enc_inputs)
+        en_input = enc_inputs[:, :2].clone()
+        de_input = dec_inputs[:, 1:].clone() 
+        cat_inputs = torch.cat((en_input, de_input), 1)
+        for k in range(1, seq_len+1):
+            if k == 1:
+                last_inputs = cat_inputs[:, 0]#self.encoder(cat_inputs[:, 0])
+            enc_input = last_inputs
+            dec_input = cat_inputs[:, k]#self.encoder(cat_inputs[:, k])
+            for i in range(self.nlayers):
+                enc_input = self.decoder(enc_input, dec_input)
+            bn = enc_input.size(0)
+            seq = enc_input.size(1)
+            dec_output = enc_input.view(bn*seq, -1)
+            dec_output = self.linear(dec_output).view(bn, seq, -1)
+            out_put = dec_output-last_inputs
+            last_inputs = dec_output
+            out_put = out_put.view(bn*seq, -1)
+            out_put = self.linear1(out_put).view(bn, seq, -1)
+            output[:, k-1] = out_put
+        output = output.view(batch_size*seq_len, node_num, em_len)
+        return output
+
 
 class Transformeradd(nn.Module):
     def __init__(self, embedding, output_dim, heads, nlayers, nodes):

@@ -42,6 +42,7 @@ def mask_iou(masks_a, masks_b, iscrowd=False):
     area_a = masks_a.sum(dim=1).unsqueeze(1)
     area_b = masks_b.sum(dim=1).unsqueeze(0)
 
+    #print('intersection', intersection, area_a, area_b)
     return intersection / (area_a + area_b - intersection) if not iscrowd else intersection / area_a
 
 def binary_mask_to_rle(binary_mask):
@@ -72,9 +73,10 @@ def write_intersection(img_ls, inters_ls, txt_name):
     if len(img_ls)!=len(inters_ls):
         print('len(img)!=len(inters).')
         return 0
+    print(inters_ls[-1])
     for i in range(len(img_ls)):
         fw.write(img_ls[i]+' ')
-        print(inters_ls[i], i)
+        #print(inters_ls[i], i)
         for k in range(inters_ls[i].shape[0]):
             for j in range(inters_ls[i].shape[1]):
                 fw.write(str(inters_ls[i][k, j])+' ')
@@ -87,6 +89,9 @@ def write_json(img_ls, tr_masks, pr_masks):
     for i in range(len(img_ls)):
         for k in range(pr_masks[i].shape[0]):
             tmp_info = {}
+            str_name = img_ls[i].split('.')[0]
+            num_str = str_name.replace('_', '').replace('img', '')
+            #print(num_str)
             tmp_info['image_id'] = int(i)
             tmp_info['category_id'] = 1
             tmp_info['score'] = 1.0
@@ -129,52 +134,51 @@ parser.add_argument('--save-folder', type=str,
                     help='Path to checkpoints.')
 parser.add_argument('--num-steps', type=int, default=1,
                     help='Number of prediction steps to evaluate.')
-parser.add_argument('--dataset', type=str,
+parser.add_argument('--datamask', type=str,
                     default='data/shapes_eval.h5',
                     help='Dataset string.')
 parser.add_argument('--no-cuda', action='store_true', default=False,
                     help='Disable CUDA training.')
 parser.add_argument('--choice-model', type=str, default="",
                     help='Dimensionality of heads space.')
-parser.add_argument('--model-name', type=str, default='model.pt',
+parser.add_argument('--object-num', type=int, default=2,
                     help='Path to model.')
 args_eval = parser.parse_args()
 import modules_eval_transformer as modules
 
 save_folder = args_eval.save_folder
-model_name = args_eval.model_name
+#model_name = args_eval.model_name
 meta_file = save_folder+'/'+'metadata.pkl'
-model_file = save_folder+'/'+model_name
-print('model_file', model_file)
-data_select = 'cube'
-if 'shape' in model_file:
-    data_select = 'shape'
+#model_file = save_folder+'/'+model_name
+#print('model_file', model_file)
+#data_select = 'cube'
+#if 'shape' in model_file:
+#    data_select = 'shape'
 
 args = pickle.load(open(meta_file, 'rb'))['args']
 
 args.cuda = not args_eval.no_cuda and torch.cuda.is_available()
 args.batch_size = 50
-args.dataset = args_eval.dataset
+args.datamask = args_eval.datamask
 args.seed = 0
 args.seqences_len = 10
+args.object_num = args_eval.object_num
+img_path = args.datamask
+tr_num_obj = args.object_num
 
 np.random.seed(args.seed)
 torch.manual_seed(args.seed)
 if args.cuda:
     torch.cuda.manual_seed(args.seed)
 
-#dataset_eval = utils.PathDataset(
-#    hdf5_file=args.dataset.replace("train", "eval"), path_length=1)
-#eval_loader = data.DataLoader(
-#    dataset_eval, batch_size=50, shuffle=False, num_workers=4)
+print('img_path',img_path)
+img_ls = os.listdir(img_path)
+img0 = cv2.imread(img_path+img_ls[0])
 
-# Get data sample
-#obs = eval_loader.__iter__().next()[0]
-#input_shape = obs[0][0].size()
-input_shape = [3, 100, 100]
-
+input_shape = [3,img0.shape[0],img0.shape[1]]#obs[0][0][0].size()
+print('input_shape', input_shape, args)
 meta_file = os.path.join(save_folder, 'metadata.pkl')
-model_file = os.path.join(save_folder, model_name)
+# model_file = os.path.join(save_folder, model_name)
 
 args = pickle.load(open(meta_file, 'rb'))['args']
 device = torch.device('cuda' if args.cuda else 'cpu')
@@ -192,52 +196,82 @@ model = modules.ContrastiveSWM(
     layers = args.layers, 
     trans_model = args.choice_model).to(device)
 
-model.load_state_dict(torch.load(model_file))
-model.eval()
+#img_path = "/home/zt/Share1/workspace/c-swm1/c-swm/data/eval_data/"+data_select+"/roi/"
+#img_path = "/data/zt_data/MOT16/Make_data/Ice_mask/"+"roi/"
+#img_path = "/data/zt_data/MOT16/Make_data/Box/mask/"+"roi/"
+#img_path = "/data/zt_data/MOT16/Make_data/basketball/test_mask/"+"roi2/"
+#img_path = args.datamask
+#print('img_path',img_path)
+#img_ls = os.listdir(img_path)
+#tr_num_obj = args.object_num
+tr_masks = np.zeros((len(img_ls), tr_num_obj, input_shape[1], input_shape[2]))
 
-img_path = "/home/zt/Share1/workspace/c-swm1/c-swm/data/eval_data/"+data_select+"/roi/"
-img_ls = os.listdir(img_path)
-tr_masks = np.zeros((len(img_ls), num_obj, input_shape[1], input_shape[2]))
+model_infos = os.listdir(save_folder)
+#model_infos = ['model_epoch30_H1_0.93333_MRR_tensor.pt', 'model_epoch18_H1_0.76190_MRR_tensor.pt', 'model_epoch29_H1_0.93333_MRR_tensor.pt']#['model_epoch98_H1_0.87619_MRR_tensor.pt']
+for m in range(len(model_infos)):
+    if '.pt' not in model_infos[m]:
+        continue
+    model_file = os.path.join(save_folder, model_infos[m])
+    print('model_file ', model_file)
+    model.load_state_dict(torch.load(model_file))
+    model.eval()
 
-pr_thre = 0.5
-images_info = []
-fw_intersection_ls = []
-fw_img_ls = []
-pr_masks = []
-tr_masks = []
-with torch.no_grad():
-    for i in range(len(img_ls)):
+    pr_thre = 0.7
+    images_info = []
+    fw_intersection_ls = []
+    fw_img_ls = []
+    pr_masks = []
+    tr_masks = []
+    with torch.no_grad():
+      for i in range(len(img_ls)):
+      #for i in range(len(img_ls)):
         # read true img mask
         img_name = img_path+img_ls[i]
         img = cv2.imread(img_name)
+        img = cv2.resize(img, (input_shape[1], input_shape[2]))
         masks = []
-        tr_mask = np.zeros((num_obj, input_shape[1], input_shape[2]))
+        tr_mask = np.zeros((tr_num_obj, input_shape[1], input_shape[2]))
         pr_mask = np.zeros((num_obj, input_shape[1], input_shape[2]))
-        for k in range(num_obj):
-            mask_pic = cv2.imread(img_name.replace("roi", "mask").replace(".png", "_"+str(k)+".png"), 0)
-            tr_mask[k, :, :] = mask_pic/255
+        back_mask = np.zeros((input_shape[1], input_shape[2]))
+        for k in range(tr_num_obj):
+            mask_pic = cv2.imread(img_name.replace("roi", "mask").replace(".png", "_mask"+str(k)+".png"), 0)
+            # print(img_name.replace("roi", "mask").replace(".jpg", "_mask"+str(k)+".png"))
+            # print('mask name', img_name.replace("roi", "mask").replace(".png", "_"+str(k)+".png"))
+            if mask_pic.shape[0] != 50:
+                mask_pic = cv2.resize(mask_pic, (100, 100))
+            tr_mask[k, :, :] = mask_pic/255.
             tr_mask[k][tr_mask[k] >= pr_thre] = 1
             tr_mask[k][tr_mask[k] <  pr_thre] = 0
+            back_mask += tr_mask[k]
             
         # forward
         obj_state = model.obj_extractor(process_img(img))
         for k in range(obj_state.size(1)):
             mask_pic = obj_state[0, k, :,:].cpu().detach().numpy()
+            #mask_pic[:2, :] = 0
+            #mask_pic[-2:, :] = 0
+            #mask_pic[:, :2] = 0
+            #mask_pic[:, -2:] = 0
             mask_pic[mask_pic >= pr_thre] = 1
-            mask_pic[mask_pic < pr_thre] = 0 
+            mask_pic[mask_pic < pr_thre] = 0
+            #if i <5:
+                 #cv2.imwrite("tmp1/"+str(model_infos[m].split('epoch')[1].split('_')[0])+'_'+str(i)+'_'+str(k)+'.png', mask_pic*255)
+            #mask_pic = np.multiply(mask_pic, back_mask)
+            #cv2.imwrite('tmp'+str(k)+'.png', mask_pic*255)
+            #cv2.waitKey(0) 
             pr_mask[k, :, :] = mask_pic
         tr_masks.append(tr_mask)
         pr_masks.append(pr_mask)
-        images_info.append({'file_name': img_name, 'height': input_shape[2], 'license': 1, 'flickr_url': '', 'width': input_shape[1], 'id': int(img_ls[i].split('.')[0]), 'date_captured': '', 'coco_url': ''})
+        images_info.append({'file_name': img_name, 'height': input_shape[2], 'license': 1, 'flickr_url': '', 'width': input_shape[1], 'id': int(i), 'date_captured': '', 'coco_url': ''})
         intersection = mask_iou(torch.from_numpy(tr_mask), torch.from_numpy(pr_mask))
         intersection = intersection.cpu().detach().numpy()
         fw_intersection_ls.append(intersection)
         fw_img_ls.append(img_ls[i])
         
-#write_intersection(fw_img_ls, fw_intersection_ls, "cube_output.txt")
-write_json(fw_img_ls, tr_masks, pr_masks)
-print(len(tr_masks), tr_masks[0].shape, len(pr_masks), pr_masks[0].shape)
-coco_eval_mask("tr_label.json", "pr_label.json")
+    write_intersection(fw_img_ls, fw_intersection_ls, "cube_output.txt")
+    write_json(fw_img_ls, tr_masks, pr_masks)
+    #print(len(tr_masks), tr_masks[0].shape, len(pr_masks), pr_masks[0].shape)
+    coco_eval_mask("tr_label.json", "pr_label.json")
 
 
 

@@ -93,11 +93,12 @@ class ContrastiveSWM(nn.Module):
             diff = states+pred_trans-next_states
             for i in range(diff.size(1)):
                 sum_diff += norm * diff[:, i].pow(2).sum(2).mean(1)
-            return sum_diff
+            return sum_diff, states+pred_trans
 
         return sum_diff
 
-    def contrastive_loss(self, obs, action, next_obs, obs_neg, action_neg, next_obs_neg):
+    #def contrastive_loss(self, obs, action, next_obs, obs_neg, action_neg, next_obs_neg):
+    def forward(self, obs, action, next_obs, obs_neg, action_neg, next_obs_neg):
 
         batch_size = obs.size(0)
         seq_num = obs.size(1)
@@ -117,12 +118,12 @@ class ContrastiveSWM(nn.Module):
         # add  black_loss
         black_loss = objs.mean(3).mean(2)
         zeros = torch.zeros_like(black_loss)
-        black_loss = torch.max(black_loss-self.black_lthr, zeros).mean(1).mean(0)
+        black_loss = torch.max(black_loss-0.3, zeros).mean(1).mean(0)
         obj_num = state.size(1)
         state = state.view(batch_size, seq_num, obj_num, -1)
         next_state = next_state.view(batch_size, seq_num, obj_num, -1)
 
-        self.pos_loss = self.energy(state, action, next_state)
+        self.pos_loss, pred_trans = self.energy(state, action, next_state)
 
         neg_batch_size = obs_neg.size(0)
         obs_neg = obs_neg.view(neg_batch_size*seq_num, obj_c, obj_h, obj_w)
@@ -141,10 +142,10 @@ class ContrastiveSWM(nn.Module):
         zeros = torch.zeros_like(self.neg_loss)
         self.neg_loss = torch.max(zeros, self.hinge - self.neg_loss).mean()
         loss = self.pos_loss + self.neg_loss + black_loss
-        return loss, self.pos_loss, self.neg_loss, black_loss
+        return loss, self.pos_loss, self.neg_loss, black_loss, next_state, pred_trans
 
-    def forward(self, obs):
-        return self.obj_encoder(self.obj_extractor(obs))
+    def forward1(self, obs):
+        return self.obj_encoder(self.obj_extractor(obs)), 
 
 
 class TransitionGNN(torch.nn.Module):
@@ -173,6 +174,12 @@ class TransitionGNN(torch.nn.Module):
             self.transform = Transformerelstm(self.input_dim, self.output_dim, self.heads, self.layers, self.num_objects)
         elif trans_model == 'lstm':
             self.transform = Transformerlstm(self.input_dim, self.output_dim, self.heads, self.layers, self.num_objects)
+        elif trans_model == 'subsat':
+            self.transform = Transformersubsat(self.input_dim, self.output_dim, self.heads, self.layers, self.num_objects)
+        elif trans_model == 'subsatall':
+            self.transform = Transformersubsatall(self.input_dim, self.output_dim, self.heads, self.layers, self.num_objects)
+        elif trans_model == 'subunsat':
+            self.transform = Transformersubunsat(self.input_dim, self.output_dim, self.heads, self.layers, self.num_objects)
         else:
             self.transform = Transformersub(self.input_dim, self.output_dim, self.heads, self.layers, self.num_objects)
 

@@ -92,8 +92,9 @@ device = torch.device('cuda' if args.cuda else 'cpu')
 dataset = utils.StateTransitionsDataseth5seq1(hdf5_file=args.dataset, seq_len=args.seqences_len)
 train_loader = data.DataLoader(dataset, batch_size=args.batch_size, shuffle=True, num_workers=4)
 
-dataset_eval = utils.PathDataseth5seq1(hdf5_file=args.dataset.replace("train", "eval"), seq_len=args.seqences_len, path_length=1)
-eval_loader = data.DataLoader(dataset_eval, batch_size=10, shuffle=False, num_workers=4) # 50
+#dataset_eval = utils.PathDataseth5seq1(hdf5_file=args.dataset.replace("train", "eval"), seq_len=args.seqences_len, path_length=1)
+dataset_eval = utils.StateTransitionsDataseth5seq1(hdf5_file=args.dataset.replace("train", "eval"), seq_len=args.seqences_len)
+eval_loader = data.DataLoader(dataset_eval, batch_size=50, shuffle=False, num_workers=4) # 50
 
 # Get data sample
 obs = train_loader.__iter__().next()[0]
@@ -121,6 +122,7 @@ else:
 optimizer = torch.optim.Adam(
     model.parameters(),
     lr=args.learning_rate)
+model = torch.nn.DataParallel(model)
 
 
 # Train model.
@@ -136,7 +138,12 @@ for epoch in range(start_epoch, args.epochs + 1):
     for batch_idx, data_batch in enumerate(train_loader):
         data_batch = [tensor.to(device) for tensor in data_batch]
         optimizer.zero_grad()
-        loss, ps_loss, neg_loss, black_loss= model.contrastive_loss(*data_batch)
+        #loss, ps_loss, neg_loss, black_loss= model.contrastive_loss(*data_batch)
+        loss, ps_loss, neg_loss, black_loss, next_state, pred_trans= model(*data_batch)
+        loss = loss.mean()
+        ps_loss = ps_loss.mean()
+        neg_loss = neg_loss.mean()
+        black_loss = black_loss.mean()
         loss.backward()
         train_loss += loss.item()
         optimizer.step()
@@ -171,36 +178,26 @@ for epoch in range(start_epoch, args.epochs + 1):
 
         with torch.no_grad():
             for batch_idx, data_batch in enumerate(eval_loader):
-                data_batch = [[t.to(
-                    device) for t in tensor] for tensor in data_batch]
-                observations, actions = data_batch
+                #data_batch = [[t.to(
+                #    device) for t in tensor] for tensor in data_batch]
+                data_batch = [tensor.to(device) for tensor in data_batch]
+                # observations, actions = data_batch
 
                 if batch_idx>20:
                     break
-
-                obs = observations[0]
-                next_obs = observations[-1]
+		
+                obs, action, next_obs, obs_neg, action_neg, next_obs_neg = data_batch
+                loss, ps_loss, neg_loss, black_loss, next_state, pred_state= model(*data_batch)
 
                 test_batch_size = obs.size(0)
                 seq_num = obs.size(1)
-                obj_c = obs.size(2)#obs.size(2)
-                obj_h = obs.size(3)#obs.size(3)
-                obj_w = obs.size(4)#obs.size(4)
-                obs = obs.view(test_batch_size*seq_num, obj_c, obj_h, obj_w)
-                next_obs = next_obs.view(test_batch_size*seq_num, obj_c, obj_h, obj_w)
-                state = model.obj_encoder(model.obj_extractor(obs))
-                next_state = model.obj_encoder(model.obj_extractor(next_obs))
-                pred_state = state
-                obj_num = pred_state.size(1)
+                obj_num = pred_state.size(2)
                 pred_state = pred_state.view(test_batch_size, seq_num, obj_num, -1)
                 next_state = next_state.view(test_batch_size, seq_num, obj_num, -1)
                 
                 for i in range(1):
-                    pred_trans = model.transition_model(pred_state, next_state)
-                    pred_trans = pred_trans[:, 0]
                     pred_state = pred_state[:, 0]
                     next_state = next_state[:, 0]
-                    pred_state = pred_state + pred_trans
 
                 pred_states.append(pred_state.cpu())
                 next_states.append(next_state.cpu())
@@ -258,4 +255,7 @@ for epoch in range(start_epoch, args.epochs + 1):
         MRR = rr_sum *1.0 / float(num_samples)
         model_file = os.path.join(save_folder, 'model.pt')
         model_file = model_file.split('.')[0]+'_epoch'+str(epoch)+'_H1_'+str(h1)[:7]+'_MRR_'+str(MRR)[:6]+'.pt'
-        torch.save(model.state_dict(), model_file)
+        torch.save(model.module.cpu().state_dict(), model_file)
+        model = model.to(device)
+        
+        print('save model', model_file)
